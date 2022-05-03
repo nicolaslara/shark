@@ -5,11 +5,10 @@ use cw2::set_contract_version;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
-use crate::state::{Config, CONFIG, Funds, LENDERS, LendPool, POOL};
+use crate::state::{Config, Funds, LendPool, CONFIG, LENDERS, POOL};
 
 const CONTRACT_NAME: &str = "crates.io:shark";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
-
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -19,14 +18,20 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-    let admin = msg.admin.unwrap_or(info.sender.to_string());
+    let admin = msg.admin.unwrap_or_else(|| info.sender.to_string());
     let validated_admin = deps.api.addr_validate(&admin)?;
     let config = Config {
         admin: validated_admin.clone(),
     };
     CONFIG.save(deps.storage, &config)?;
     let zero = Uint128::new(0);
-    POOL.save(deps.storage, &LendPool{available: zero, used: zero})?;
+    POOL.save(
+        deps.storage,
+        &LendPool {
+            available: zero,
+            used: zero,
+        },
+    )?;
     Ok(Response::new()
         .add_attribute("action", "instantiate")
         .add_attribute("admin", validated_admin.to_string()))
@@ -35,36 +40,31 @@ pub fn instantiate(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     info: MessageInfo,
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::SupplyFunds {} => execute_supply(deps, info),
-        ExecuteMsg::SupplyCollateral { collateral } => unimplemented!(),
-        ExecuteMsg::Borrow { amount } => unimplemented!(),
-
+        ExecuteMsg::SupplyCollateral { collateral: _ } => unimplemented!(),
+        ExecuteMsg::Borrow { amount: _ } => unimplemented!(),
     }
 }
 
-fn execute_supply(
-    deps: DepsMut,
-    info: MessageInfo
-) -> Result<Response, ContractError> {
+fn execute_supply(deps: DepsMut, info: MessageInfo) -> Result<Response, ContractError> {
     let funds = match &info.funds[..] {
-        [Coin{denom, amount }] if denom == "uosmo" => Ok(Funds { value: *amount }),
-        _ => Err(ContractError::InvalidFunds {})
+        [Coin { denom, amount }] if denom == "uosmo" => Ok(Funds { value: *amount }),
+        _ => Err(ContractError::InvalidFunds {}),
     }?;
 
     LENDERS.save(deps.storage, &info.sender, &funds)?;
-    let pool = POOL.update(deps.storage, |mut pool| -> Result<_, ContractError>{
+    let pool = POOL.update(deps.storage, |mut pool| -> Result<_, ContractError> {
         pool.available += funds.value;
         Ok(pool)
     })?;
     Ok(Response::new()
         .add_attribute("action", "supply_funds")
-        .add_attribute("available_funds", pool.available)
-    )
+        .add_attribute("available_funds", pool.available))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

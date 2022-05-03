@@ -2,11 +2,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use cosmwasm_std::{Addr, Coin, Uint128};
-use cw_storage_plus::{Item, Map, };
+use cw_storage_plus::{Item, Map};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Config {
-    pub admin: Addr
+    pub admin: Addr,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -14,7 +14,6 @@ pub struct LendPool {
     pub used: Uint128,
     pub available: Uint128,
 }
-
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Funds {
@@ -26,7 +25,6 @@ pub struct Debt {
     pub debt: Option<Coin>,
     pub collateral: Coin,
 }
-
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const LENDERS: Map<&Addr, Funds> = Map::new("lenders");
