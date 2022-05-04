@@ -17,6 +17,34 @@
     {
       "type": "object",
       "required": [
+        "swap"
+      ],
+      "properties": {
+        "swap": {
+          "type": "object",
+          "required": [
+            "input",
+            "min_output"
+          ],
+          "properties": {
+            "input": {
+              "type": "integer",
+              "format": "uint128",
+              "minimum": 0.0
+            },
+            "min_output": {
+              "type": "integer",
+              "format": "uint128",
+              "minimum": 0.0
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
         "supply_collateral"
       ],
       "properties": {

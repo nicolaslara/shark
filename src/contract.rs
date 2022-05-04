@@ -1,7 +1,9 @@
+use std::cmp::min;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{Binary, Coin, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Uint128};
+use cosmwasm_std::{Binary, Coin, Deps, DepsMut, Env, MessageInfo, Response, StdResult, SubMsg, Uint128};
 use cw2::set_contract_version;
+use osmo_bindings::{OsmosisMsg, SwapAmountWithLimit};
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
@@ -43,19 +45,24 @@ pub fn execute(
     _env: Env,
     info: MessageInfo,
     msg: ExecuteMsg,
-) -> Result<Response, ContractError> {
+) -> Result<Response<OsmosisMsg>, ContractError> {
     match msg {
         ExecuteMsg::SupplyFunds {} => execute_supply(deps, info),
+        ExecuteMsg::Swap {} => execute_swap(deps, info),
         ExecuteMsg::SupplyCollateral { collateral: _ } => unimplemented!(),
         ExecuteMsg::Borrow { amount: _ } => unimplemented!(),
     }
 }
 
-fn execute_supply(deps: DepsMut, info: MessageInfo) -> Result<Response, ContractError> {
-    let funds = match &info.funds[..] {
-        [Coin { denom, amount }] if denom == "uosmo" => Ok(Funds { value: *amount }),
+fn get_funds_from(info: &MessageInfo, match_denom: &str) -> Result<Funds, ContractError> {
+    match &info.funds[..] {
+        [Coin { denom, amount }] if denom == match_denom => Ok(Funds { value: *amount }),
         _ => Err(ContractError::InvalidFunds {}),
-    }?;
+    }
+}
+
+fn execute_supply(deps: DepsMut, info: MessageInfo) -> Result<Response<OsmosisMsg>, ContractError> {
+    let funds = get_funds_from(&info, "uosmo")?;
 
     LENDERS.save(deps.storage, &info.sender, &funds)?;
     let pool = POOL.update(deps.storage, |mut pool| -> Result<_, ContractError> {
@@ -65,6 +72,24 @@ fn execute_supply(deps: DepsMut, info: MessageInfo) -> Result<Response, Contract
     Ok(Response::new()
         .add_attribute("action", "supply_funds")
         .add_attribute("available_funds", pool.available))
+}
+
+fn execute_swap(_deps: DepsMut, _info: MessageInfo) -> Result<Response<OsmosisMsg>, ContractError> {
+    let swap = OsmosisMsg::simple_swap(
+        1,
+        "uosmo",
+        "uion",
+        SwapAmountWithLimit::ExactIn {
+            input: Uint128::from(5 as u128),
+            min_output: Uint128::from(4 as u128)
+        }
+    );
+    let msgs = vec![SubMsg::new(swap)];
+
+    Ok(Response::new()
+        .add_attribute("action", "execute_swap")
+        .add_submessages(msgs)
+    )
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

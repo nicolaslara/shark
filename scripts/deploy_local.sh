@@ -1,12 +1,8 @@
 #!/bin/bash
-
-DEFAULT_DEV_ADDRESS="osmo1wjczfnzd9z60evfg3etxpydr8mhw9gnqhdshht"
-
-
-# pinched and adapted from whoami/DA0DA0
 BINARY="../osmosis/build/osmosisd --home ../osmosis/home/"
+DEFAULT_DEV_ADDRESS=$($BINARY keys show validator -a --keyring-backend test)
 DENOM='uosmo'
-CHAIN_ID='localnet'
+CHAIN_ID='localnet-0'
 RPC='http://localhost:26657/'
 TXFLAG="--gas-prices 0.1$DENOM --gas auto --gas-adjustment 1.3 -y -b block --chain-id $CHAIN_ID --node $RPC --keyring-backend test"
 BLOCK_GAS_LIMIT=${GAS_LIMIT:-100000000} # should mirror mainnet
@@ -14,10 +10,11 @@ BLOCK_GAS_LIMIT=${GAS_LIMIT:-100000000} # should mirror mainnet
 echo "Configured Block Gas Limit: $BLOCK_GAS_LIMIT"
 
 # compile
-#docker run --rm -v "$(pwd)":/code \
-#  --mount type=volume,source="$(basename "$(pwd)")_cache",target=/code/target \
-#  --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
-#  cosmwasm/rust-optimizer:0.12.6
+docker run --rm -v "$(pwd)":/code \
+  --mount type=volume,source="$(basename "$(pwd)")_cache",target=/code/target \
+  --volume $(dirname "$(pwd)")/osmosis-bindings/:/osmosis-bindings \
+  --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
+  cosmwasm/rust-optimizer:0.12.6
 
 
 # you ideally want to run locally, get a user and then
@@ -44,6 +41,9 @@ printf "Config Variables \n\n"
 
 echo "NEXT_PUBLIC_SHARK_CODE_ID=$CONTRACT_CODE"
 echo "NEXT_PUBLIC_SHARK_ADDRESS=$CONTRACT_ADDRESS"
+
+export contract=$CONTRACT_ADDRESS
+echo "contract address exported to \$contract\n"
 
 echo $RES
 exit $RES
