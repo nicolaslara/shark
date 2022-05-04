@@ -29,13 +29,11 @@
           "properties": {
             "input": {
               "type": "integer",
-              "format": "uint128",
-              "minimum": 0.0
+              "format": "int32"
             },
             "min_output": {
               "type": "integer",
-              "format": "uint128",
-              "minimum": 0.0
+              "format": "int32"
             }
           }
         }

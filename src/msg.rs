@@ -1,4 +1,4 @@
-use cosmwasm_std::{Coin, Uint128};
+use cosmwasm_std::{Coin};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +12,7 @@ pub struct InstantiateMsg {
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     SupplyFunds {},
-    Swap { },
+    Swap { input: i32, min_output: i32 },
     SupplyCollateral { collateral: Coin },
     Borrow { amount: Coin },
 }

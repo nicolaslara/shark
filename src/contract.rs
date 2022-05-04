@@ -1,4 +1,3 @@
-use std::cmp::min;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{Binary, Coin, Deps, DepsMut, Env, MessageInfo, Response, StdResult, SubMsg, Uint128};
@@ -48,7 +47,7 @@ pub fn execute(
 ) -> Result<Response<OsmosisMsg>, ContractError> {
     match msg {
         ExecuteMsg::SupplyFunds {} => execute_supply(deps, info),
-        ExecuteMsg::Swap {} => execute_swap(deps, info),
+        ExecuteMsg::Swap {input, min_output} => execute_swap(deps, info, input, min_output),
         ExecuteMsg::SupplyCollateral { collateral: _ } => unimplemented!(),
         ExecuteMsg::Borrow { amount: _ } => unimplemented!(),
     }
@@ -74,14 +73,14 @@ fn execute_supply(deps: DepsMut, info: MessageInfo) -> Result<Response<OsmosisMs
         .add_attribute("available_funds", pool.available))
 }
 
-fn execute_swap(_deps: DepsMut, _info: MessageInfo) -> Result<Response<OsmosisMsg>, ContractError> {
+fn execute_swap(_deps: DepsMut, _info: MessageInfo, input: i32, min_output: i32) -> Result<Response<OsmosisMsg>, ContractError> {
     let swap = OsmosisMsg::simple_swap(
         1,
         "uosmo",
         "uion",
         SwapAmountWithLimit::ExactIn {
-            input: Uint128::from(5 as u128),
-            min_output: Uint128::from(4 as u128)
+            input: Uint128::from(input as u128),
+            min_output: Uint128::from(min_output as u128)
         }
     );
     let msgs = vec![SubMsg::new(swap)];
