@@ -1,4 +1,4 @@
-use cosmwasm_std::StdError;
+use cosmwasm_std::{Coin, StdError};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -10,5 +10,5 @@ pub enum ContractError {
     Unauthorized {},
 
     #[error("InvalidFunds")]
-    InvalidFunds {},
+    InvalidFunds { funds: Option<Coin> },
 }

@@ -13,6 +13,7 @@ pub struct InstantiateMsg {
 pub enum ExecuteMsg {
     SupplyFunds {},
     Swap { input: u128, min_output: u128 },
+    Lock {},
     SupplyCollateral { collateral: Coin },
     Borrow { amount: Coin },
 }

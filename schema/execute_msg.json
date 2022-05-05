@@ -45,6 +45,18 @@
     {
       "type": "object",
       "required": [
+        "lock"
+      ],
+      "properties": {
+        "lock": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
         "supply_collateral"
       ],
       "properties": {

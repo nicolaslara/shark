@@ -48,6 +48,7 @@ pub fn execute(
     match msg {
         ExecuteMsg::SupplyFunds {} => execute_supply(deps, info),
         ExecuteMsg::Swap {input, min_output} => execute_swap(deps, info, input, min_output),
+        ExecuteMsg::Lock {} => execute_lock(deps.as_ref(), info),
         ExecuteMsg::SupplyCollateral { collateral: _ } => unimplemented!(),
         ExecuteMsg::Borrow { amount: _ } => unimplemented!(),
     }
@@ -56,12 +57,13 @@ pub fn execute(
 fn get_funds_from(info: &MessageInfo, match_denom: &str) -> Result<Funds, ContractError> {
     match &info.funds[..] {
         [Coin { denom, amount }] if denom == match_denom => Ok(Funds { value: *amount }),
-        _ => Err(ContractError::InvalidFunds {}),
+        [coin] => Err(ContractError::InvalidFunds { funds: Some(coin.clone()) }),
+        _ => Err(ContractError::InvalidFunds { funds: None }),
     }
 }
 
 fn execute_supply(deps: DepsMut, info: MessageInfo) -> Result<Response<OsmosisMsg>, ContractError> {
-    let funds = get_funds_from(&info, "uosmo")?;
+    let funds = get_funds_from(&info, "gamm/pool/1")?;
 
     LENDERS.save(deps.storage, &info.sender, &funds)?;
     let pool = POOL.update(deps.storage, |mut pool| -> Result<_, ContractError> {
@@ -71,6 +73,24 @@ fn execute_supply(deps: DepsMut, info: MessageInfo) -> Result<Response<OsmosisMs
     Ok(Response::new()
         .add_attribute("action", "supply_funds")
         .add_attribute("available_funds", pool.available))
+}
+
+fn execute_lock(deps: Deps, info: MessageInfo) -> Result<Response<OsmosisMsg>, ContractError> {
+    let available = match LENDERS.may_load(deps.storage, &info.sender)? {
+        Some(f) => f.value,
+        None => return Err(ContractError::InvalidFunds { funds: None })
+    };
+    let lock = OsmosisMsg::LockTokens {
+        denom: "gamm/pool/1".to_owned(),
+        amount: available,
+        duration: "336h".to_owned()
+    };
+    let msgs = vec![SubMsg::new(lock)];
+
+    Ok(Response::new()
+        .add_attribute("action", "execute_swap")
+        .add_submessages(msgs)
+    )
 }
 
 fn execute_swap(_deps: DepsMut, _info: MessageInfo, input: u128, min_output: u128) -> Result<Response<OsmosisMsg>, ContractError> {
