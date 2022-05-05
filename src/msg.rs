@@ -12,7 +12,7 @@ pub struct InstantiateMsg {
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     SupplyFunds {},
-    Swap { input: i32, min_output: i32 },
+    Swap { input: u128, min_output: u128 },
     SupplyCollateral { collateral: Coin },
     Borrow { amount: Coin },
 }

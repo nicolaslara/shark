@@ -1,1 +1,1 @@
-741d0c2a28cf40db0e2aeac537674567998beb2b9123c34bbc6e875b6aa408fe  ./target/wasm32-unknown-unknown/release/shark.wasm
+9ae7f7920665769ffe7db28c3fbdfbb8c8bb99052faa91607b5748e19e01faac  ./target/wasm32-unknown-unknown/release/shark.wasm
