@@ -18,6 +18,9 @@ Similarly, rust/wasm bindings for the osmosis lock-tokens endpoints are expected
 These are currently in development, but a minimal implementation
 can be found in https://github.com/nicolaslara/osmosis-bindings/tree/lock-tokens
 
+To compile this project, the bindings are expected to live on `../osmosis-bindings/`.
+
+
 ### Other tools
 
 For development, this project uses a few helper scripts that depend on `gsed` and `yq`.
