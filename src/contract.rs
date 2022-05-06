@@ -1,14 +1,12 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{
-    Binary, Coin, Deps, DepsMut, Env, MessageInfo, Response, StdResult, SubMsg, Uint128,
-};
+use cosmwasm_std::{BankMsg, Binary, Coin, Deps, DepsMut, Env, MessageInfo, Response, StdResult, SubMsg, Uint128};
 use cw2::set_contract_version;
-use osmo_bindings::{OsmosisMsg, SwapAmountWithLimit};
+use osmo_bindings::{OsmosisMsg};
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
-use crate::state::{Config, Funds, LendPool, CONFIG, LENDERS, POOL};
+use crate::state::{Config, Funds, LendPool, CONFIG, LENDERS, POOL, BORROWERS, Debt};
 
 const CONTRACT_NAME: &str = "crates.io:shark";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -25,6 +23,8 @@ pub fn instantiate(
     let validated_admin = deps.api.addr_validate(&admin)?;
     let config = Config {
         admin: validated_admin.clone(),
+        funds_denom: "uosmo".to_owned(),
+        collateral_denom: "gamm/pool/1".to_owned()
     };
     CONFIG.save(deps.storage, &config)?;
     let zero = Uint128::new(0);
@@ -49,10 +49,11 @@ pub fn execute(
 ) -> Result<Response<OsmosisMsg>, ContractError> {
     match msg {
         ExecuteMsg::SupplyFunds {} => execute_supply(deps, info),
-        ExecuteMsg::Swap { input, min_output } => execute_swap(deps, info, input, min_output),
-        ExecuteMsg::Lock {} => execute_lock(deps.as_ref(), info),
-        ExecuteMsg::SupplyCollateral { collateral: _ } => unimplemented!(),
-        ExecuteMsg::Borrow { amount: _ } => unimplemented!(),
+        // ExecuteMsg::Swap { input, min_output } => execute_swap(deps, info, input, min_output),
+        ExecuteMsg::SupplyCollateral { } => execute_supply_collateral(deps, info),
+        ExecuteMsg::Borrow { amount } => execute_borrow(deps, info, amount),
+        ExecuteMsg::Repay { .. } => unimplemented!(),
+        ExecuteMsg::DistributeRewards { .. } => unimplemented!(),
     }
 }
 
@@ -60,14 +61,16 @@ fn get_funds_from(info: &MessageInfo, match_denom: &str) -> Result<Funds, Contra
     match &info.funds[..] {
         [Coin { denom, amount }] if denom == match_denom => Ok(Funds { value: *amount }),
         [coin] => Err(ContractError::InvalidFunds {
-            funds: Some(coin.clone()),
+            funds: Some(coin.clone() as Coin),
+            expected: match_denom.to_string()
         }),
-        _ => Err(ContractError::InvalidFunds { funds: None }),
+        _ => Err(ContractError::FundsRequired {}),
     }
 }
 
 fn execute_supply(deps: DepsMut, info: MessageInfo) -> Result<Response<OsmosisMsg>, ContractError> {
-    let funds = get_funds_from(&info, "gamm/pool/1")?;
+    let config = CONFIG.load(deps.storage)?;
+    let funds = get_funds_from(&info, &config.funds_denom)?;
 
     LENDERS.save(deps.storage, &info.sender, &funds)?;
     let pool = POOL.update(deps.storage, |mut pool| -> Result<_, ContractError> {
@@ -79,44 +82,73 @@ fn execute_supply(deps: DepsMut, info: MessageInfo) -> Result<Response<OsmosisMs
         .add_attribute("available_funds", pool.available))
 }
 
-fn execute_lock(deps: Deps, info: MessageInfo) -> Result<Response<OsmosisMsg>, ContractError> {
-    let available = match LENDERS.may_load(deps.storage, &info.sender)? {
-        Some(f) => f.value,
-        None => return Err(ContractError::InvalidFunds { funds: None }),
-    };
+fn execute_supply_collateral(deps: DepsMut, info: MessageInfo) -> Result<Response<OsmosisMsg>, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let funds = get_funds_from(&info, &config.collateral_denom)?;
+
+    let debt = BORROWERS.update(deps.storage, &info.sender, |borrower: Option<Debt>| -> Result<Debt, ContractError>{
+        match borrower {
+            Some(mut debt) => {
+                debt.collateral += funds.value;
+                Ok(debt)
+            },
+            None => Ok(Debt { debt: Uint128::new(0), collateral: funds.value })
+        }
+    })?;
+
     let lock = OsmosisMsg::LockTokens {
         denom: "gamm/pool/1".to_owned(),
-        amount: available,
+        amount: funds.value,
         duration: "336h".to_owned(),
     };
     let msgs = vec![SubMsg::new(lock)];
 
     Ok(Response::new()
-        .add_attribute("action", "execute_swap")
+        .add_attribute("action", "execute_supply_collateral")
+        .add_attribute("collateral", debt.collateral)
+        .add_attribute("debt", debt.debt)
         .add_submessages(msgs))
 }
 
-fn execute_swap(
-    _deps: DepsMut,
-    _info: MessageInfo,
-    input: u128,
-    min_output: u128,
-) -> Result<Response<OsmosisMsg>, ContractError> {
-    let swap = OsmosisMsg::simple_swap(
-        1,
-        "uosmo",
-        "uion",
-        SwapAmountWithLimit::ExactIn {
-            input: Uint128::from(input),
-            min_output: Uint128::from(min_output),
-        },
-    );
-    let msgs = vec![SubMsg::new(swap)];
+fn execute_borrow(deps: DepsMut, info: MessageInfo, amount: u128) -> Result<Response<OsmosisMsg>, ContractError>{
+    let config = CONFIG.load(deps.storage)?;
+    let debt = BORROWERS.load(deps.storage, &info.sender)?;
+    if debt.capacity() < Uint128::new(amount) {
+        return Err(ContractError::InsuficientCollateral{});
+    }
+
+    let to_borrow = Coin{ denom: config.funds_denom.clone(), amount: Uint128::new(amount) };
+    let send = BankMsg::Send { to_address: info.sender.to_string(), amount: vec![to_borrow] };
+    let msgs = vec![SubMsg::new(send)];
 
     Ok(Response::new()
-        .add_attribute("action", "execute_swap")
+        .add_attribute("action", "execute_borrow")
+        .add_attribute("borrowed_denom", config.funds_denom.to_string())
+        .add_attribute("borrowed_amount", amount.to_string())
         .add_submessages(msgs))
 }
+
+// fn execute_swap(
+//     _deps: DepsMut,
+//     _info: MessageInfo,
+//     input: u128,
+//     min_output: u128,
+// ) -> Result<Response<OsmosisMsg>, ContractError> {
+//     let swap = OsmosisMsg::simple_swap(
+//         1,
+//         "uosmo",
+//         "uion",
+//         SwapAmountWithLimit::ExactIn {
+//             input: Uint128::from(input),
+//             min_output: Uint128::from(min_output),
+//         },
+//     );
+//     let msgs = vec![SubMsg::new(swap)];
+//
+//     Ok(Response::new()
+//         .add_attribute("action", "execute_swap")
+//         .add_submessages(msgs))
+// }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(_deps: Deps, _env: Env, _msg: QueryMsg) -> StdResult<Binary> {
