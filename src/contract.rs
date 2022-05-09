@@ -1,8 +1,8 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{BankMsg, Binary, Coin, Deps, DepsMut, Env, MessageInfo, Response, StdResult, SubMsg, Uint128};
+use cosmwasm_std::{BankMsg, Binary, Coin, Deps, DepsMut, Env, MessageInfo, QueryRequest, Response, StdResult, SubMsg, Uint128};
 use cw2::set_contract_version;
-use osmo_bindings::{OsmosisMsg};
+use osmo_bindings::{OsmosisMsg, OsmosisQuery, SpotPriceResponse};
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
@@ -42,7 +42,7 @@ pub fn instantiate(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(
-    deps: DepsMut,
+    deps: DepsMut<OsmosisQuery>,
     _env: Env,
     info: MessageInfo,
     msg: ExecuteMsg,
@@ -68,7 +68,7 @@ fn get_funds_from(info: &MessageInfo, match_denom: &str) -> Result<Funds, Contra
     }
 }
 
-fn execute_supply(deps: DepsMut, info: MessageInfo) -> Result<Response<OsmosisMsg>, ContractError> {
+fn execute_supply(deps: DepsMut<OsmosisQuery>, info: MessageInfo) -> Result<Response<OsmosisMsg>, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let funds = get_funds_from(&info, &config.funds_denom)?;
 
@@ -82,7 +82,7 @@ fn execute_supply(deps: DepsMut, info: MessageInfo) -> Result<Response<OsmosisMs
         .add_attribute("available_funds", pool.available))
 }
 
-fn execute_supply_collateral(deps: DepsMut, info: MessageInfo) -> Result<Response<OsmosisMsg>, ContractError> {
+fn execute_supply_collateral(deps: DepsMut<OsmosisQuery>, info: MessageInfo) -> Result<Response<OsmosisMsg>, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let funds = get_funds_from(&info, &config.collateral_denom)?;
 
@@ -110,22 +110,27 @@ fn execute_supply_collateral(deps: DepsMut, info: MessageInfo) -> Result<Respons
         .add_submessages(msgs))
 }
 
-fn execute_borrow(deps: DepsMut, info: MessageInfo, amount: u128) -> Result<Response<OsmosisMsg>, ContractError>{
+fn execute_borrow(deps: DepsMut<OsmosisQuery>, info: MessageInfo, amount: u128) -> Result<Response<OsmosisMsg>, ContractError>{
     let config = CONFIG.load(deps.storage)?;
     let debt = BORROWERS.load(deps.storage, &info.sender)?;
+
+    let spot_price = OsmosisQuery::spot_price(1, "uosmo", "uion");
+    let query = QueryRequest::from(spot_price);
+    let response = deps.querier.query(&query)?;
+
     if debt.capacity() < Uint128::new(amount) {
-        return Err(ContractError::InsuficientCollateral{});
+        return Err(ContractError::SimpleError{ msg: format!("Price: {:?}", response) });
     }
 
     let to_borrow = Coin{ denom: config.funds_denom.clone(), amount: Uint128::new(amount) };
     let send = BankMsg::Send { to_address: info.sender.to_string(), amount: vec![to_borrow] };
-    let msgs = vec![SubMsg::new(send)];
 
     Ok(Response::new()
         .add_attribute("action", "execute_borrow")
         .add_attribute("borrowed_denom", config.funds_denom.to_string())
         .add_attribute("borrowed_amount", amount.to_string())
-        .add_submessages(msgs))
+        .add_message(send)
+    )
 }
 
 // fn execute_swap(

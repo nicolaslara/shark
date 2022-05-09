@@ -18,6 +18,6 @@ pub enum ContractError {
     #[error("InsuficientCollateral")]
     InsuficientCollateral { },
 
-    #[error("SimpleError")]
+    #[error("SimpleError: {msg}")]
     SimpleError { msg: String },
 }
