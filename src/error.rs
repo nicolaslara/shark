@@ -9,7 +9,7 @@ pub enum ContractError {
     #[error("Unauthorized")]
     Unauthorized {},
 
-    #[error("InvalidFunds")]
+    #[error("InvalidFunds.")]
     InvalidFunds { funds: Option<Coin>, expected: String },
 
     #[error("FundsRequired")]

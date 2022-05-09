@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use cosmwasm_std::{Addr, Uint128};
+use cosmwasm_std::{Addr, Decimal, Uint128};
 use cw_storage_plus::{Item, Map};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -29,8 +29,8 @@ pub struct Debt {
 }
 
 impl Debt {
-    pub fn capacity(&self) -> Uint128 {
-        Uint128::new(20)
+    pub fn capacity(&self, price: Decimal) -> Uint128 {
+        self.collateral*price - self.debt
     }
 }
 

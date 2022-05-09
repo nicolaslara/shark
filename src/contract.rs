@@ -116,10 +116,10 @@ fn execute_borrow(deps: DepsMut<OsmosisQuery>, info: MessageInfo, amount: u128) 
 
     let spot_price = OsmosisQuery::spot_price(1, "uosmo", "uion");
     let query = QueryRequest::from(spot_price);
-    let response = deps.querier.query(&query)?;
+    let response: SpotPriceResponse = deps.querier.query(&query)?;
 
-    if debt.capacity() < Uint128::new(amount) {
-        return Err(ContractError::SimpleError{ msg: format!("Price: {:?}", response) });
+    if debt.capacity(response.price) < Uint128::new(amount) {
+        return Err(ContractError::SimpleError{ msg: format!("Price: {:?}", response)});
     }
 
     let to_borrow = Coin{ denom: config.funds_denom.clone(), amount: Uint128::new(amount) };

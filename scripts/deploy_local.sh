@@ -1,4 +1,5 @@
 #!/bin/bash
+set -eux
 BINARY="../osmosis/build/osmosisd --home ../osmosis/home/"
 DEFAULT_DEV_ADDRESS=$($BINARY keys show validator -a --keyring-backend test)
 DENOM='uosmo'
