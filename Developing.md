@@ -1,3 +1,4 @@
+
 # Developing
 
 If you have recently created a contract with this template, you probably could use some

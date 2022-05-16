@@ -1,1 +1,0 @@
-97183a11ee52ccc39a23344e341de04b0b0a0c461b33e615d8f238920b337ed4  ./target/wasm32-unknown-unknown/release/shark.wasm

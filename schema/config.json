@@ -3,11 +3,19 @@
   "title": "Config",
   "type": "object",
   "required": [
-    "admin"
+    "admin",
+    "collateral_denom",
+    "funds_denom"
   ],
   "properties": {
     "admin": {
       "$ref": "#/definitions/Addr"
+    },
+    "collateral_denom": {
+      "type": "string"
+    },
+    "funds_denom": {
+      "type": "string"
     }
   },
   "definitions": {
