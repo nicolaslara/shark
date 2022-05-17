@@ -1,15 +1,19 @@
+#![allow(unused, dead_code, unused_imports, unreachable_code)]
+
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::CosmosMsg::Bank;
 use cosmwasm_std::{
-    BankMsg, Binary, Coin, CustomQuery, Deps, DepsMut, Env, MessageInfo, QueryRequest, Reply,
-    Response, StdError, StdResult, SubMsg, Uint128,
+    BankMsg, Binary, Coin, CustomQuery, Decimal, Deps, DepsMut, Env, MessageInfo, QueryRequest,
+    Reply, Response, StdError, StdResult, SubMsg, Uint128,
 };
 use cw2::set_contract_version;
-use osmo_bindings::{OsmosisMsg, OsmosisQuery, SpotPriceResponse};
+use osmo_bindings::{OsmosisMsg, OsmosisQuery, PoolStateResponse, SpotPriceResponse};
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
+use std::borrow::Borrow;
 use std::fmt::Debug;
+use OsmosisQuery::PoolState;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
@@ -30,8 +34,8 @@ pub fn instantiate(
     let validated_admin = deps.api.addr_validate(&admin)?;
     let config = Config {
         admin: validated_admin.clone(),
-        funds_denom: "uosmo".to_owned(),
-        collateral_denom: "gamm/pool/1".to_owned(),
+        funds_denom: msg.funds_denom,
+        collateral_denom: msg.collateral_denom,
     };
     CONFIG.save(deps.storage, &config)?;
     let zero = Uint128::new(0);
@@ -140,18 +144,51 @@ fn execute_borrow(
         .load(deps.storage, &info.sender)
         .or(Err(ContractError::InsuficientCollateral {}))?;
 
-    let spot_price = OsmosisQuery::spot_price(1, "uosmo", "uion");
+    // ToDo: Deal with potential errors and add validation to the collateral denom in the instantiate method
+    let pool_query = OsmosisQuery::PoolState {
+        id: config.collateral_denom.split("/").collect::<Vec<&str>>()[2]
+            .parse()
+            .unwrap(),
+    };
+    let query = QueryRequest::from(pool_query);
+    let pool_info: PoolStateResponse = deps.querier.query(&query)?;
+
+    // ToDo: deal with errors or garantee that they are there in instantiate.
+    // ToDo: do this in a cleaner way
+    let base = pool_info
+        .assets
+        .iter()
+        .filter(|x| *x.denom != config.funds_denom)
+        .collect::<Vec<&Coin>>()[0];
+    let other = pool_info
+        .assets
+        .iter()
+        .filter(|x| *x.denom == config.funds_denom)
+        .collect::<Vec<&Coin>>()[0];
+
+    let spot_price = OsmosisQuery::spot_price(1, &base.denom, &config.funds_denom);
     let query = QueryRequest::from(spot_price);
     let response: SpotPriceResponse = deps.querier.query(&query)?;
 
-    return Err(ContractError::SimpleError {
-        msg: format!("Price: {:?}", response),
-    });
+    // ToDo: all of this stupiditly assumes that one of the tokens is a stablecoin and we use it as a base token for price. It also assumes we're borrowing in the same pool we're providing collateral. Not ideal.
+    // calculate the pool value
+    let ratio = Decimal::new(debt.collateral) / Decimal::new(base.amount);
+    // ToDo: this is a stupid way to do type conversion
+    let price = response.price;
+    let value = ratio / Decimal::new(2_u128.into()) * Decimal::new(base.amount)
+        + ratio / Decimal::new(2_u128.into()) * Decimal::new(other.amount) * price;
+    println!("{}", value);
+    let capacity = debt.capacity(value);
+
+    if capacity == Decimal::zero() {
+        return Err(ContractError::InsuficientCollateral {});
+    }
 
     let to_borrow = Coin {
         denom: config.funds_denom.clone(),
         amount: Uint128::new(amount),
     };
+
     let send = BankMsg::Send {
         to_address: info.sender.to_string(),
         amount: vec![to_borrow],
@@ -207,6 +244,7 @@ pub fn reply(
 
 #[cfg(test)]
 mod tests {
+    #![allow(unused, dead_code, unused_imports, unreachable_code)]
     use super::*;
     use std::marker::PhantomData;
 
@@ -245,7 +283,6 @@ mod tests {
     ) -> OwnedDeps<MockStorage, MockApi, MockQuerier<OsmosisQuery>, OsmosisQuery> {
         let custom_querier: MockQuerier<OsmosisQuery> =
             MockQuerier::new(&[]).with_custom_handler(|query| {
-                println!("{:?}", query);
                 SystemResult::Err(SystemError::InvalidRequest {
                     error: "not implemented".to_string(),
                     request: Default::default(),
@@ -264,66 +301,73 @@ mod tests {
     pub const LENDER_ADDR: &str = "osmo1t3gjpqadhhqcd29v64xa06z66mmz7kazsvkp69";
     pub const BORROWER_ADDR: &str = "osmo1y244hh4g6ku4kznyy5c53adgu9m8jucf0kmz82";
 
-    // fn build_wasm_msg<T>(contract_addr: Addr, inner_msg: T) -> CosmosMsg<OsmosisMsg>
-    // where
-    //     T: Serialize + ?Sized,
-    // {
-    //     CosmosMsg::Wasm(WasmMsg::Execute {
-    //         contract_addr: contract_addr.into(),
-    //         msg: to_binary(&inner_msg).unwrap(),
-    //         funds: vec![],
-    //     })
-    // }
+    fn build_wasm_msg<T>(
+        contract_addr: &Addr,
+        inner_msg: &T,
+        funds: Vec<Coin>,
+    ) -> CosmosMsg<OsmosisMsg>
+    where
+        T: Serialize,
+    {
+        CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: contract_addr.into(),
+            msg: to_binary(&inner_msg).unwrap(),
+            funds,
+        })
+    }
 
     #[test]
     fn test_execute_borrow() {
         // let mut router = load();
         let mut app = OsmosisApp::new();
-        let coin_a = coin(6_000_000u128, "osmo");
-        let coin_b = coin(1_500_000u128, "atom");
-        let pool = Pool::new(coin_a.clone(), coin_b.clone());
+        let owner = Addr::unchecked(OWNER_ADDR);
+        let borrower = Addr::unchecked(BORROWER_ADDR);
+        let init_funds = vec![coin(200, "usdc"), coin(500, "osmo")];
+        let pool_funds = vec![coin(15, "gamm/pool/1")];
+
+        let pool = Pool::new(coin(100, "usdc"), coin(50, "osmo"));
         app.init_modules(|router, _, storage| {
             router.custom.set_pool(storage, 1, &pool).unwrap();
+            router
+                .bank
+                .init_balance(storage, &owner, init_funds)
+                .unwrap();
+            router
+                .bank
+                .init_balance(storage, &borrower, pool_funds.clone())
+                .unwrap();
         });
         let contract: Box<dyn Contract<OsmosisMsg, OsmosisQuery>> = contract();
         let code_id = app.store_code(contract);
 
-        let mut deps = mock_dependencies();
-        let env = mock_env();
-        let info = mock_info(LENDER_ADDR, &vec![Coin::new(10, "uosmo")]);
-
         // Instantiate the contract
-        let msg = InstantiateMsg { admin: None };
+        let msg = InstantiateMsg {
+            admin: None,
+            funds_denom: "usdc".to_string(),
+            collateral_denom: "gamm/pool/1".to_string(),
+        };
         let contract_addr = app
-            .instantiate_contract(
-                code_id,
-                Addr::unchecked(OWNER_ADDR),
-                &msg,
-                &[],
-                "shark",
-                None,
-            )
+            .instantiate_contract(code_id, owner.clone(), &msg, &[], "shark", None)
             .unwrap();
 
         // Add funds to be lent
         let msg = ExecuteMsg::SupplyFunds {};
-        let wasm_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: contract_addr.into(),
-            msg: to_binary(&msg).unwrap(),
-            funds: vec![],
-        });
-        // let wasm_msg = build_wasm_msg(contract_addr, msg);
+        let wasm_msg = build_wasm_msg(&contract_addr, &msg, vec![coin(200, "usdc")]);
         let res = app.execute(Addr::unchecked(LENDER_ADDR), wasm_msg).unwrap();
 
-        // let msg = ExecuteMsg::SupplyCollateral {};
-        // let info = mock_info(BORROWER_ADDR, &vec![Coin::new(10, "gamm/pool/1")]);
-        // let res = execute_supply_collateral(deps.as_mut(), info.clone()).unwrap();
-        //
-        // let msg = ExecuteMsg::Borrow { amount: 1 };
-        // let info = mock_info(BORROWER_ADDR, &vec![]);
-        // let res = execute(deps.as_mut(), env, info.clone(), msg).unwrap();
+        let msg = ExecuteMsg::SupplyCollateral {};
+        let wasm_msg = build_wasm_msg(&contract_addr, &msg, pool_funds.clone());
+        let res = app.execute(borrower.clone(), wasm_msg).unwrap();
 
-        // Unwrap to assert success
-        // let res = execute(deps.as_mut(), env, info, msg).unwrap();
+        let balance = app.wrap().query_balance(&borrower, "usdc").unwrap();
+        assert_eq!(balance.amount, Uint128::new(0));
+
+        let amount = 6;
+        let msg = ExecuteMsg::Borrow { amount };
+        let wasm_msg = build_wasm_msg(&contract_addr, &msg, vec![]);
+        let res = app.execute(borrower.clone(), wasm_msg).unwrap();
+
+        let balance = app.wrap().query_balance(&borrower, "usdc").unwrap();
+        assert_eq!(balance.amount, Uint128::new(amount));
     }
 }

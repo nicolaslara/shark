@@ -29,8 +29,13 @@ pub struct Debt {
 }
 
 impl Debt {
-    pub fn capacity(&self, price: Decimal) -> Uint128 {
-        self.collateral*price - self.debt
+    pub fn capacity(&self, value: Decimal) -> Decimal {
+        // ToDo: find a rusty way of doing this. Maybe catch_unwind?
+        return if self.collateral * value > self.debt {
+            Decimal::new(self.collateral) * value - Decimal::new(self.debt)
+        } else {
+            Decimal::zero()
+        };
     }
 }
 
