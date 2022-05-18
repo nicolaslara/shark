@@ -1,19 +1,11 @@
-#![allow(unused, dead_code, unused_imports, unreachable_code)]
-
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::CosmosMsg::Bank;
 use cosmwasm_std::{
-    BankMsg, Binary, Coin, CustomQuery, Decimal, Deps, DepsMut, Env, MessageInfo, QueryRequest,
-    Reply, Response, StdError, StdResult, SubMsg, Uint128,
+    BankMsg, Binary, Coin, Decimal, Deps, DepsMut, Env, MessageInfo, QueryRequest, Reply, Response,
+    StdResult, SubMsg, Uint128,
 };
 use cw2::set_contract_version;
 use osmo_bindings::{OsmosisMsg, OsmosisQuery, PoolStateResponse, SpotPriceResponse};
-use schemars::JsonSchema;
-use serde::de::DeserializeOwned;
-use std::borrow::Borrow;
-use std::fmt::Debug;
-use OsmosisQuery::PoolState;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
@@ -158,13 +150,17 @@ fn execute_borrow(
     let base = pool_info
         .assets
         .iter()
-        .filter(|x| *x.denom != config.funds_denom)
-        .collect::<Vec<&Coin>>()[0];
+        .find(|x| *x.denom != config.funds_denom)
+        .ok_or(ContractError::SimpleError {
+            msg: "bad config".to_string(),
+        })?;
     let other = pool_info
         .assets
         .iter()
-        .filter(|x| *x.denom == config.funds_denom)
-        .collect::<Vec<&Coin>>()[0];
+        .find(|x| *x.denom == config.funds_denom)
+        .ok_or(ContractError::SimpleError {
+            msg: "bad config".to_string(),
+        })?;
 
     let spot_price = OsmosisQuery::spot_price(1, &base.denom, &config.funds_denom);
     let query = QueryRequest::from(spot_price);
@@ -244,18 +240,15 @@ pub fn reply(
 
 #[cfg(test)]
 mod tests {
-    #![allow(unused, dead_code, unused_imports, unreachable_code)]
     use super::*;
-    use std::marker::PhantomData;
+    use std::fmt::Debug;
 
-    use cosmwasm_std::testing::{mock_env, mock_info, MockApi, MockQuerier, MockStorage};
-    use cosmwasm_std::{
-        attr, coin, to_binary, Addr, Coin, CosmosMsg, CustomMsg, Empty, OwnedDeps, SystemError,
-        SystemResult, WasmMsg,
-    };
+    use cosmwasm_std::{coin, to_binary, Addr, Coin, CosmosMsg, CustomQuery, WasmMsg};
     use cw_multi_test::{Contract, ContractWrapper, Executor};
     use osmo_bindings::{OsmosisMsg, OsmosisQuery};
     use osmo_bindings_test::{OsmosisApp, Pool};
+    use schemars::JsonSchema;
+    use serde::de::DeserializeOwned;
     use serde::Serialize;
 
     use crate::msg::{ExecuteMsg, InstantiateMsg};
@@ -279,22 +272,22 @@ mod tests {
         Box::new(contract)
     }
 
-    pub fn mock_dependencies(
-    ) -> OwnedDeps<MockStorage, MockApi, MockQuerier<OsmosisQuery>, OsmosisQuery> {
-        let custom_querier: MockQuerier<OsmosisQuery> =
-            MockQuerier::new(&[]).with_custom_handler(|query| {
-                SystemResult::Err(SystemError::InvalidRequest {
-                    error: "not implemented".to_string(),
-                    request: Default::default(),
-                })
-            });
-        OwnedDeps {
-            storage: MockStorage::default(),
-            api: MockApi::default(),
-            querier: custom_querier,
-            custom_query_type: PhantomData,
-        }
-    }
+    // pub fn mock_dependencies(
+    // ) -> OwnedDeps<MockStorage, MockApi, MockQuerier<OsmosisQuery>, OsmosisQuery> {
+    //     let custom_querier: MockQuerier<OsmosisQuery> =
+    //         MockQuerier::new(&[]).with_custom_handler(|query| {
+    //             SystemResult::Err(SystemError::InvalidRequest {
+    //                 error: "not implemented".to_string(),
+    //                 request: Default::default(),
+    //             })
+    //         });
+    //     OwnedDeps {
+    //         storage: MockStorage::default(),
+    //         api: MockApi::default(),
+    //         querier: custom_querier,
+    //         custom_query_type: PhantomData,
+    //     }
+    // }
 
     pub const OWNER_ADDR: &str = "osmo1t3gjpqadhhqcd29v64xa06z66mmz7kazsvkp69";
 
@@ -353,11 +346,11 @@ mod tests {
         // Add funds to be lent
         let msg = ExecuteMsg::SupplyFunds {};
         let wasm_msg = build_wasm_msg(&contract_addr, &msg, vec![coin(200, "usdc")]);
-        let res = app.execute(Addr::unchecked(LENDER_ADDR), wasm_msg).unwrap();
+        app.execute(Addr::unchecked(LENDER_ADDR), wasm_msg).unwrap();
 
         let msg = ExecuteMsg::SupplyCollateral {};
         let wasm_msg = build_wasm_msg(&contract_addr, &msg, pool_funds.clone());
-        let res = app.execute(borrower.clone(), wasm_msg).unwrap();
+        app.execute(borrower.clone(), wasm_msg).unwrap();
 
         let balance = app.wrap().query_balance(&borrower, "usdc").unwrap();
         assert_eq!(balance.amount, Uint128::new(0));
@@ -365,7 +358,7 @@ mod tests {
         let amount = 6;
         let msg = ExecuteMsg::Borrow { amount };
         let wasm_msg = build_wasm_msg(&contract_addr, &msg, vec![]);
-        let res = app.execute(borrower.clone(), wasm_msg).unwrap();
+        app.execute(borrower.clone(), wasm_msg).unwrap();
 
         let balance = app.wrap().query_balance(&borrower, "usdc").unwrap();
         assert_eq!(balance.amount, Uint128::new(amount));
