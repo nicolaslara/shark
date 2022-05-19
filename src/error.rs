@@ -10,13 +10,16 @@ pub enum ContractError {
     Unauthorized {},
 
     #[error("InvalidFunds.")]
-    InvalidFunds { funds: Option<Coin>, expected: String },
+    InvalidFunds {
+        funds: Option<Coin>,
+        expected: String,
+    },
 
     #[error("FundsRequired")]
-    FundsRequired { },
+    FundsRequired {},
 
     #[error("InsuficientCollateral")]
-    InsuficientCollateral { },
+    InsuficientCollateral {},
 
     #[error("SimpleError: {msg}")]
     SimpleError { msg: String },

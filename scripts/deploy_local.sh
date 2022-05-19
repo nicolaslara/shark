@@ -27,8 +27,8 @@ echo "TX Flags: $TXFLAG"
 CONTRACT_CODE=$($BINARY tx wasm store "./artifacts/shark.wasm" --from $DEFAULT_DEV_ADDRESS $TXFLAG --output json | jq -r '.logs[0].events[-1].attributes[0].value')
 echo "Stored: $CONTRACT_CODE"
 
-
-INIT='{"admin":null}'
+# ToDo: Use the variable above
+INIT='{"admin":null, "funds_denom": "uosmo", "collateral_denom": "gamm/pool/1"}'
 echo "$INIT" | jq .
 $BINARY tx wasm instantiate $CONTRACT_CODE "$INIT" --from $DEFAULT_DEV_ADDRESS --label "shark" $TXFLAG --no-admin
 RES=$?
